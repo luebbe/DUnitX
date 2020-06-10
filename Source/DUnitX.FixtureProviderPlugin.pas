@@ -59,7 +59,7 @@ type
     function FormatTestName(const AName: string; const ATimes, ACount: Integer): string;
     function FormatCaseName(const AName:string; Nr:integer):string;
     function TryGetAttributeOfType<T : class>(const attributes: TArray<TCustomAttribute>; var attribute: T): boolean;
-    procedure RTTIDiscoverFixtureClasses(const context: IFixtureProviderContext);
+    procedure RTTIDiscoverFixtureClasses;
     procedure GenerateTests(const context: IFixtureProviderContext; const fixture : ITestFixture);
     procedure Execute(const context: IFixtureProviderContext);
   public
@@ -132,11 +132,11 @@ var
   category : string;
 begin
   if context.UseRtti then
-    RTTIDiscoverFixtureClasses(context);
+    RTTIDiscoverFixtureClasses;
 
   for pair in TDUnitX.RegisteredFixtures do
   begin
-     if not FFixtureClasses.ContainsValue(pair.Value) then
+     if not FFixtureClasses.ContainsKey(pair.Key) then
       FFixtureClasses.AddOrSetValue(pair.Key, pair.Value);
   end;
 
@@ -174,7 +174,7 @@ begin
         //first time through the loop it will be empty.
         if parentNamespace = '' then
         begin
-          if not tmpFixtures.TryGetValue(fixtureNamespace,fixture) then
+          if not tmpFixtures.TryGetValue(fixtureNamespace, parentFixture) then
           begin
             parentFixture := context.CreateFixture(TObject,fixtureNamespace,'');
             tmpFixtures.Add(fixtureNamespace,parentFixture);
@@ -204,13 +204,15 @@ begin
 
       fixtureNamespace := fixtureNamespace + '.' + pair.Value;
 
-      if parentFixture = nil then
-      begin
-        fixture := context.CreateFixture(pair.Key,fixtureNamespace,category);
-        fixtureList.Add(fixture);
-      end
-      else
-        parentFixture.AddChildFixture(pair.Key,fixtureNamespace,category);
+      //per issue #253 - looking at the code above, parentFixture should always be assigned by the time we get here.
+      System.Assert(Assigned(parentFixture));
+//      if parentFixture = nil then
+//      begin
+//        fixture := context.CreateFixture(pair.Key,fixtureNamespace,category);
+//        fixtureList.Add(fixture);
+//      end
+//      else
+      parentFixture.AddChildFixture(pair.Key,fixtureNamespace,category);
     end;
     for fixture in fixtureList do
     begin
@@ -289,7 +291,7 @@ var
   willRaiseInherit: TExceptionInheritance;
 
   repeatCount: Cardinal;
-  i,c: Integer;
+  i: Integer;
   currentFixture: ITestFixture;
 begin
 //  WriteLn('Generating Tests for : ' + fixture.FullName);
@@ -407,6 +409,12 @@ begin
       continue;
     end;
 
+    if fixture.Ignored then
+    begin
+      ignoredTest := true;
+      ignoredReason := fixture.IgnoreReason;
+    end
+    else
     if method.TryGetAttributeOfType<IgnoreAttribute>(ignoredAttrib) then
     begin
       ignoredTest   := true;
@@ -541,7 +549,7 @@ begin
   end;
 end;
 
-procedure TDUnitXFixtureProvider.RTTIDiscoverFixtureClasses(const context: IFixtureProviderContext);
+procedure TDUnitXFixtureProvider.RTTIDiscoverFixtureClasses;
 var
   types : TArray<TRttiType>;
   rType : TRttiType;

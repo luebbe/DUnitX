@@ -167,6 +167,12 @@ type
     ///   Checks that an exception exactly matching ExceptClass and Message will be raised.
     /// </summary>
     class procedure WillRaiseWithMessage(const AMethod : TTestLocalMethod; const exceptionClass : ExceptClass = nil; const exceptionMsg: string = ''; const msg : string = ''); overload;
+    {$IFDEF SUPPORTS_REGEX}
+    /// <summary>
+    ///   Checks that an exception exactly matching ExceptClass and RegExp-matching Message will be raised.
+    /// </summary>
+    class procedure WillRaiseWithMessageRegex(const AMethod : TTestLocalMethod; const exceptionClass : ExceptClass = nil; const exceptionMsgRegexPattern: string = ''; const msg : string = ''); overload;
+    {$ENDIF}
     /// <summary>
     ///   Checks that an exception exactly matching ExceptClass will be raised.
     /// </summary>
@@ -211,14 +217,14 @@ type
 
     /// <summary>
     ///   Checks that an exception of Any type not will be raised. This method
-    ///   is to complement <see cref="DUnitX.TestFramework|Assert.WillRaiseAny(TTestLocalMethod,string)">
+    ///   is to complement <see cref="DUnitX.Assert|Assert.WillRaiseAny(TTestLocalMethod,string)">
     ///   WillRaiseAny</see> method, and is not required, as the default behavior of a test
     ///   is to fail when any exception is raised.
     /// </summary>
     class procedure WillNotRaiseAny(const AMethod : TTestLocalMethod; const msg : string = ''); overload;
     /// <summary>
     ///   Checks that an exception of Any type not will be raised. This method
-    ///   is to complement <see cref="DUnitX.TestFramework|Assert.WillRaiseAny(TTestMethod,string)">
+    ///   is to complement <see cref="DUnitX.Assert|Assert.WillRaiseAny(TTestMethod,string)">
     ///   WillRaiseAny</see> method, and is not required, as the default behavior of a test
     ///   is to fail when any exception is raised.
     /// </summary>
@@ -334,7 +340,35 @@ asm
 end;
 {$ENDIF}
 
+{$IFDEF SUPPORTS_REGEX}
+{$IFDEF USE_TREGEXPR}
+function PerformIsMatch(const regexPattern, theString: string): boolean;
+var
+  RegExp: TRegExpr;
+begin
+  RegExp := TRegExpr.Create;
+  try
+    RegExp.Expression := regexPattern;
+    Result := RegExp.Exec(theString);
+  finally
+    RegExp.Free;
+  end;
+end;
+{$ELSE}
+function PerformIsMatch(const regexPattern, theString: string): boolean;
+begin
+  Result := TRegEx.IsMatch(theString,regexPattern);
+end;
+{$ENDIF}
+{$ENDIF}
+
 { Assert }
+
+class procedure Assert.DoAssert;
+begin
+  if Assigned(fOnAssert) then
+    fOnAssert();
+end;
 
 class procedure Assert.AreEqual(const expected, actual, tolerance: Extended; const message: string);
 begin
@@ -976,11 +1010,9 @@ begin
     on e : TObject do // For those who throw exceptions not descending from Exception.
     begin
       if e is Exception  then
-      begin
-        FailFmt(SUnexpectedException, [e.ClassName, exception(e).message], ReturnAddress);
-      end
+        FailFmt(SUnexpectedException + AddLineBreak(msg), [e.ClassName, exception(e).message], ReturnAddress)
       else
-        FailFmt(SUnexpectedExceptionAlt, [e.ClassName], ReturnAddress);
+        FailFmt(SUnexpectedExceptionAlt + AddLineBreak(msg), [e.ClassName], ReturnAddress);
     end;
   end;
 end;
@@ -1134,6 +1166,25 @@ begin
   Fail(SNoException + AddLineBreak(msg), ReturnAddress);
 end;
 
+{$IFDEF SUPPORTS_REGEX}
+class procedure Assert.WillRaiseWithMessageRegex(const AMethod : TTestLocalMethod; const exceptionClass : ExceptClass; const exceptionMsgRegexPattern: string; const msg : string);
+begin
+  DoAssert;
+  try
+    AMethod;
+  except
+    on E: Exception do
+    begin
+      CheckExceptionClass(E, exceptionClass);
+      if (exceptionMsgRegexPattern <> '') and (not PerformIsMatch(exceptionMsgRegexPattern, E.Message)) then
+        FailFmt(SUnexpectedExceptionMessage, [E.ClassName, E.Message, exceptionMsgRegexPattern, msg]);
+      Exit;
+    end;
+  end;
+  Fail(SNoException + AddLineBreak(msg), ReturnAddress);
+end;
+{$ENDIF}
+
 class procedure Assert.AreEqual(const expected : string; const actual : string; const message : string);
 begin
   Assert.AreEqual(expected, actual, fIgnoreCaseDefault, message);
@@ -1203,11 +1254,6 @@ begin
   fIgnoreCaseDefault := true;
 end;
 
-class procedure Assert.DoAssert;
-begin
-  if Assigned(fOnAssert) then
-    fOnAssert();
-end;
 
 class procedure Assert.DoesNotContain(const theString, subString, message: string);
 begin
@@ -1242,31 +1288,10 @@ end;
 
 {$IFDEF SUPPORTS_REGEX}
 class procedure Assert.IsMatch(const regexPattern, theString, message: string);
-
-  {$IFDEF USE_TREGEXPR}
-  function PerformIsMatch(): boolean;
-  var
-    RegExp: TRegExpr;
-  begin
-    RegExp := TRegExpr.Create;
-    try
-      RegExp.Expression := regexPattern;
-      Result := RegExp.Exec(theString);
-    finally
-      RegExp.Free;
-    end;
-  end;
-  {$ELSE}
-  function PerformIsMatch(): boolean;
-  begin
-    Result := TRegEx.IsMatch(theString,regexPattern);
-  end;
-  {$ENDIF}
-
 begin
   DoAssert;
 
-  if not PerformIsMatch then
+  if not PerformIsMatch(regexPattern, theString) then
     FailFmt(SStrDoesNotMatch, [theString,regexPattern,message], ReturnAddress);
 end;
 {$ENDIF}
